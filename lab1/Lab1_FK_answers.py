@@ -92,39 +92,30 @@ def part2_forward_kinematics(joint_name, joint_parent, joint_offset, motion_data
         1. joint_orientations的四元数顺序为(x, y, z, w)
         2. from_euler时注意使用大写的XYZ
     """
-    # Initialization
-    joint_positions = np.zeros((len(joint_offset), 3))
-    joint_orientations = np.zeros((len(joint_offset), 4))
-    idx_offset = 0
-    # Iterate offsets (i.e. all nodes)
-    for idx, offset in enumerate(joint_offset):
-        cur_joint_name = joint_name[idx]
-        parent_idx = joint_parent[idx]
+    bone_num = len(joint_name)
 
-        if cur_joint_name.startswith('RootJoint'):
-            # For root，there are three more position data
-            joint_positions[idx] = motion_data[frame_id, :3]
-            joint_orientations[idx] = R.from_euler('XYZ', motion_data[frame_id, 3:6],
-                                                   degrees=True).as_quat()
-        elif cur_joint_name.endswith('_end'):
-            # Perform Quaternion Multiplication
-            q_result = joint_orientations[parent_idx] * np.concatenate(([0], offset)) * \
-                       joint_orientations[parent_idx].conj()
-            joint_positions[idx] = joint_positions[parent_idx] + q_result[1:]
-            idx_offset += 1
+    joint_positions = np.empty((bone_num, 3))
+    joint_orientations = np.empty((bone_num, 4))
+
+    joint_positions[0] = motion_data[frame_id][:3]
+    joint_orientations[0] = R.from_euler('XYZ', motion_data[frame_id][3:6], degrees=True).as_quat()
+
+    frame_count = 1
+    for i in range(1, bone_num):
+        p = joint_parent[i]
+        cur_rotate = None
+        if joint_name[i].endswith('_end'):
+            cur_rotate = R.from_euler('XYZ', [0., 0., 0.], degrees=True)
         else:
-            # Normal Node
-            # Get the rotation data (Euler angles) for the current joint and convert it to a rotation matrix
-            rotation = R.from_euler('XYZ', motion_data[frame_id, 3 * (idx - idx_offset + 1):3 * (idx - idx_offset + 2)],
-                                    degrees=True).as_matrix()
-            # Get the rotation matrix of the parent joint
-            rot_matrix_p = R.from_quat(joint_orientations[parent_idx]).as_matrix()
-            # Calculate the global rotation of the current joint
-            tmp = rot_matrix_p.dot(rotation)
-            # Convert the result to quaternions
-            joint_orientations[idx] = R.from_matrix(tmp).as_quat()
-            # Calculate the offset in the coordinate system of the parent node
-            joint_positions[idx] = joint_positions[parent_idx] + rot_matrix_p.dot(offset)
+            cur_rotate = R.from_euler('XYZ', motion_data[frame_id][3 + frame_count * 3: 6 + frame_count * 3],
+                                      degrees=True)
+            frame_count += 1
+
+        p_orient = R.from_quat(joint_orientations[p])
+        joint_orientations[i] = (p_orient * cur_rotate).as_quat()
+        joint_positions[i] = joint_positions[p] + np.dot(R.from_quat(joint_orientations[p]).as_matrix(),
+                                                         joint_offset[i])
+
     return joint_positions, joint_orientations
 
 
